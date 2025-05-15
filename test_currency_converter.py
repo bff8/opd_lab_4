@@ -1,94 +1,113 @@
-# Импорт необходимых модулей
-import unittest  # Основной модуль для unit-тестирования в Python
-from app import get_currency_rates, index  # Импорт тестируемых функций из основного файла
-from flask import Flask, template_rendered, request  # Компоненты Flask для тестирования
-
-
+import unittest  # Модуль для юнит-тестирования, предоставляет инструменты для создания и запуска тестов
+from app import get_currency_rates, index  # Импорт функций get_currency_rates и index из app.py для тестирования
+from flask import Flask, request  # Flask для создания тестового приложения, request для работы с данными запросов
+from unittest.mock import patch  # Инструмент для мока(тестовые двойники, для имитации поведения зависимостей или функциональности) внешних зависимостей, таких как HTTP-запросы
 class TestCurrencyConverter(unittest.TestCase):
-    """Класс для тестирования функций конвертера валют"""
-    # Наследуемся от unittest.TestCase - базового класса для создания тестов
-
+    """Класс для тестирования конвертера валют"""
+    # Наследуется от unittest.TestCase, чтобы использовать методы для проверки утверждений (assert)
     def setUp(self):
-        """Настройка тестового окружения"""
-        # Метод вызывается перед каждым тестом для подготовки среды
-        self.app = Flask(__name__)  # Создаем экземпляр Flask-приложения
-        self.app.config['TESTING'] = True  # Включаем тестовый режим (отключает обработку ошибок)
-        self.client = self.app.test_client()  # Создаем тестовый клиент для отправки запросов
-
-        # Добавляем маршрут для тестирования
+        """Настройка тестового окружения перед каждым тестом"""
+        # Метод вызывается автоматически перед каждым тестом для подготовки окружения
+        # Создаем Flask-приложение для тестов
+        self.app = Flask(__name__)  # Инициализируем Flask-приложение, __name__ — имя текущего модуля
+        # Включаем тестовый режим для Flask
+        self.app.config['TESTING'] = True  # Тестовый режим отключает обработку ошибок Flask для упрощения тестирования
+        # Создаем тестовый клиент для отправки HTTP-запросов
+        self.client = self.app.test_client()  # Тестовый клиент имитирует запросы к приложению без запуска сервера
+        # Регистрируем маршрут для функции index
+        # Связываем URL '/' с функцией index, поддерживающей GET и POST
         self.app.add_url_rule('/', 'index', index, methods=['GET', 'POST'])
-        # Регистрируем маршрут '/' с обработчиком index, принимающий GET и POST запросы
 
-    def test_get_currency_rates(self):
-        """Тестирование функции получения курсов валют"""
-        rates = get_currency_rates()  # Вызываем тестируемую функцию
+    def test_get_currency_rates_fallback(self):
+        """Тест получения запасных курсов валют при ошибке API"""
+        # Проверяет, что функция get_currency_rates возвращает запасные курсы, если API недоступно
+        # Мокаем requests.get, чтобы сымитировать ошибку
+        with patch('requests.get') as mocked_get:  # Используем patch для замены requests.get на мок-объект
+            # Устанавливаем, что mocked_get будет бросать исключение
+            mocked_get.side_effect = Exception("API недоступно")  # Симулируем сбой API
+            # Вызываем функцию get_currency_rates
+            rates = get_currency_rates()  # Получаем результат выполнения функции
+            # Проверяем, что возвращается словарь
+            self.assertIsInstance(rates, dict)  # Убеждаемся, что rates — это словарь
+            # Проверяем наличие валют
+            self.assertIn('USD', rates)  # Проверяем, что ключ 'USD' есть в словаре
+            self.assertIn('EUR', rates)  # Проверяем, что ключ 'EUR' есть в словаре
+            self.assertIn('RUB', rates)  # Проверяем, что ключ 'RUB' есть в словаре
+            self.assertIn('KZT', rates)  # Проверяем, что ключ 'KZT' есть в словаре
+            # Проверяем значения запасных курсов
+            self.assertEqual(rates['USD'], 1.0)  # Проверяем, что курс USD равен 1.0
+            self.assertEqual(rates['EUR'], 0.85)  # Проверяем, что курс EUR равен 0.85
+            self.assertEqual(rates['RUB'], 82.0)  # Проверяем, что курс RUB равен 82.0
+            self.assertEqual(rates['KZT'], 420.0)  # Проверяем, что курс KZT равен 420.0
 
-        # Проверяем, что возвращается словарь
-        self.assertIsInstance(rates, dict)
-        # assertIsInstance проверяет, что rates является экземпляром dict
-
-        # Проверяем наличие основных валют в словаре
-        self.assertIn('USD', rates)  # Проверяем наличие ключа 'USD'
-        self.assertIn('EUR', rates)  # Проверяем наличие ключа 'EUR'
-        self.assertIn('RUB', rates)  # Проверяем наличие ключа 'RUB'
-
-        # Проверяем, что курс USD к USD равен 1
-        self.assertEqual(rates['USD'], 1.0)
-        # assertEqual проверяет равенство значений
-
-    def test_index_route(self):
-        """Тестирование главной страницы"""
-        with self.app.test_request_context('/'):
-            # Создаем контекст запроса для тестирования
-            response = index()  # Вызываем функцию index()
-
-            # Проверяем, что функция возвращает результат
-            self.assertIsNotNone(response)
-            # assertIsNotNone проверяет, что response не None
-
-    def test_currency_conversion(self):
-        """Тестирование логики конвертации валют"""
-        # Тестовые данные (фиксированные курсы валют)
-        test_rates = {
-            'USD': 1.0,
-            'EUR': 0.85,
-            'RUB': 75.0,
-            'KZT': 420.0
-        }
-
-        # Тест 1: Конвертация USD в EUR
-        result = 100 * (test_rates['EUR'] / test_rates['USD'])
-        self.assertAlmostEqual(result, 85.0, places=2)
-        # assertAlmostEqual проверяет равенство с плавающей точкой с точностью до 2 знаков
-
-        # Тест 2: Конвертация EUR в RUB
-        result = 10 * (test_rates['RUB'] / test_rates['EUR'])
-        self.assertAlmostEqual(result, 882.35, places=2)
-
-        # Тест 3: Конвертация USD в KZT
-        result = 1 * (test_rates['KZT'] / test_rates['USD'])
-        self.assertEqual(result, 420.0)
-
-    def test_form_submission(self):
-        """Тестирование отправки формы"""
-        with self.client as c:  # Используем тестовый клиент
-            # Отправляем POST-запрос с тестовыми данными формы
+    def test_invalid_amount_input(self):
+        """Тест обработки некорректной суммы (не число)"""
+        # Проверяет, как приложение обрабатывает ввод суммы, которая не является числом
+        with self.client as c:  # Используем тестовый клиент в контексте
+            # Отправляем POST-запрос с некорректной суммой
             response = c.post('/', data={
-                'amount': '100',  # Сумма для конвертации
+                'amount': 'abc',  # Некорректная сумма (строка вместо числа)
                 'from_currency': 'USD',  # Исходная валюта
-                'to_currency': 'EUR'  # Целевая валюта
-            })
+                'to_currency': 'EUR',  # Целевая валюта
+                'decimal_places': '2'  # Количество знаков после запятой
+            })  # Отправляем POST-запрос на главную страницу
+            # Проверяем, что код ответа 200
+            self.assertEqual(response.status_code, 200)  # Убеждаемся, что запрос успешен (страница загрузилась)
+            # Проверяем наличие сообщения об ошибке
+            error_message = "Пожалуйста, введите корректное число"  # Ожидаемое сообщение об ошибке
+            self.assertIn(error_message.encode('utf-8'), response.data)  # Проверяем, что сообщение есть в ответе (в байтах UTF-8)
 
-            # Проверяем код ответа (200 - успешный запрос)
-            self.assertEqual(response.status_code, 200)
+    def test_negative_amount(self):
+        """Тест обработки отрицательной или нулевой суммы"""
+        # Проверяет, как приложение обрабатывает отрицательную или нулевую сумму
+        with self.client as c:  # Используем тестовый клиент в контексте
+            # Отправляем POST-запрос с отрицательной суммой
+            response = c.post('/', data={
+                'amount': '-100',  # Отрицательная сумма
+                'from_currency': 'USD',  # Исходная валюта
+                'to_currency': 'EUR',  # Целевая валюта
+                'decimal_places': '2'  # Количество знаков после запятой
+            })  # Отправляем POST-запрос на главную страницу
+            # Проверяем, что код ответа 200
+            self.assertEqual(response.status_code, 200)  # Убеждаемся, что запрос успешен
+            # Проверяем наличие сообщения об ошибке
+            error_message = "Введите положительное количество денег"  # Ожидаемое сообщение об ошибке
+            self.assertIn(error_message.encode('utf-8'), response.data)  # Проверяем, что сообщение есть в ответе (в байтах UTF-8)
 
-            # Проверяем, что ответ содержит ожидаемые данные
-            self.assertIn(b'Money convert', response.data)
-            # assertIn проверяет наличие подстроки в ответе
-            self.assertIn(b'100', response.data)  # Проверяем сумму
-            self.assertIn(b'USD', response.data)  # Проверяем исходную валюту
-            self.assertIn(b'EUR', response.data)  # Проверяем целевую валюту
+    def test_too_large_amount(self):
+        """Тест обработки слишком большой суммы"""
+        # Проверяет, как приложение обрабатывает сумму, превышающую 1 миллиард
+        with self.client as c:  # Используем тестовый клиент в контексте
+            # Отправляем POST-запрос с суммой > 1 миллиарда
+            response = c.post('/', data={
+                'amount': '1000000001',  # Слишком большая сумма
+                'from_currency': 'USD',  # Исходная валюта
+                'to_currency': 'EUR',  # Целевая валюта
+                'decimal_places': '2'  # Количество знаков после запятой
+            })  # Отправляем POST-запрос на главную страницу
+            # Проверяем, что код ответа 200
+            self.assertEqual(response.status_code, 200)  # Убеждаемся, что запрос успешен
+            # Проверяем наличие сообщения об ошибке
+            error_message = "Сумма слишком большая для конвертации"  # Ожидаемое сообщение об ошибке
+            self.assertIn(error_message.encode('utf-8'), response.data)  # Проверяем, что сообщение есть в ответе (в байтах UTF-8)
 
+    def test_invalid_decimal_places(self):
+        """Тест обработки некорректного количества знаков после запятой"""
+        # Проверяет, как приложение обрабатывает некорректное значение для decimal_places
+        with self.client as c:  # Используем тестовый клиент в контексте
+            # Отправляем POST-запрос с некорректным decimal_places
+            response = c.post('/', data={
+                'amount': '100',  # Корректная сумма
+                'from_currency': 'USD',  # Исходная валюта
+                'to_currency': 'EUR',  # Целевая валюта
+                'decimal_places': 'abc'  # Некорректное значение (строка вместо числа)
+            })  # Отправляем POST-запрос на главную страницу
+            # Проверяем, что код ответа 200
+            self.assertEqual(response.status_code, 200)  # Убеждаемся, что запрос успешен
+            # Проверяем наличие сообщения об ошибке
+            error_message = "Ошибка при конвертации"  # Ожидаемое сообщение об ошибке
+            self.assertIn(error_message.encode('utf-8'), response.data)  # Проверяем, что сообщение есть в ответе (в байтах UTF-8)
 
 if __name__ == '__main__':
-    unittest.main()  # Запускаем все тесты, если файл выполняется напрямую
+    # Проверяем, запущен ли скрипт напрямую (а не импортирован как модуль)
+    unittest.main()  # Запускаем все тесты, определенные в классе TestCurrencyConverter
